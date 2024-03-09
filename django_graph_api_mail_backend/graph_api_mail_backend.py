@@ -8,9 +8,8 @@ from requests import Session, RequestException
 from django.core.mail.message import EmailMessage
 from django.core.mail.backends.base import BaseEmailBackend
 
-# expires_in is in seconds
 # https://learn.microsoft.com/en-us/graph/auth-v2-user?tabs=http#token-response
-GraphAPIAccessToken = collections.namedtuple('GraphAPIAccessToken', ['value', 'expires_in', 'refresh_token', 'access_timestamp'])
+GraphAPIAccessToken = collections.namedtuple('GraphAPIAccessToken', ['value', 'expires_in_seconds', 'refresh_token', 'access_timestamp'])
 
 
 def construct_token_endpoint(tenant_id: str):
@@ -80,7 +79,7 @@ class GraphAPIMailBackend(BaseEmailBackend):
         # https://learn.microsoft.com/en-us/graph/auth-v2-user?tabs=http#token-response
         return GraphAPIAccessToken(
             value=response['access_token'],
-            expires_in=response['expires_in'],
+            expires_in_seconds=response['expires_in'],
             refresh_token=response['refresh_token'],
             access_timestamp=self._get_now(),
         )
@@ -106,7 +105,7 @@ class GraphAPIMailBackend(BaseEmailBackend):
         # https://learn.microsoft.com/en-us/graph/auth-v2-user?tabs=http#response-1
         return GraphAPIAccessToken(
             value=response['access_token'],
-            expires_in=response['expires_in'],
+            expires_in_seconds=response['expires_in'],
             refresh_token=response['refresh_token'],
             access_timestamp=self._get_now(),
         )
@@ -127,7 +126,7 @@ class GraphAPIMailBackend(BaseEmailBackend):
                 continue
             email_message.from_email = email_message.from_email.split('<')[-1].split('>')[0]
             try:
-                if self._access_token.access_timestamp + timedelta(seconds=self._access_token.expires_in) <= self._get_now():
+                if self._access_token.access_timestamp + timedelta(seconds=self._access_token.expires_in_seconds) <= self._get_now():
                     self._access_token = self._refresh_access_token()
                 response = self._http_session.post(
                     url=construct_send_email_endpoint(email_message.from_email),
