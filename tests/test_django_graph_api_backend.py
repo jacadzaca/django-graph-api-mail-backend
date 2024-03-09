@@ -236,3 +236,19 @@ def test_emails_without_recipients_are_not_sent(
     )
     sent_emails_count = backend.send_messages([example_message])
     assert sent_emails_count == 0
+
+
+def test_email_is_extracted_from_from_email_in_name_form(
+    example_message: EmailMessage,
+):
+    example_message.from_email = f'Fred <{example_message.from_email}>'
+    mock_http_session = MockSession()
+    backend = GraphAPIMailBackend(
+        fail_silently=False,
+        client_id=mock_http_session.client_id,
+        client_secret=mock_http_session.client_secret,
+        tenant_id=mock_http_session.tenant_id,
+        create_session=lambda: mock_http_session,
+    )
+    backend.send_messages([example_message])
+

@@ -125,6 +125,7 @@ class GraphAPIMailBackend(BaseEmailBackend):
         for email_message in email_messages:
             if not email_message.recipients():
                 continue
+            email_message.from_email = email_message.from_email.split('<')[-1].split('>')[0]
             try:
                 if self._access_token.access_timestamp + timedelta(seconds=self._access_token.expires_in) <= self._get_now():
                     self._access_token = self._refresh_access_token()
