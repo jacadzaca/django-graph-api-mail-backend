@@ -219,3 +219,20 @@ def test_send_messages_raises_exception_on_error_when_fail_silently_off(
     with pytest.raises(expected_exception):
         backend.send_messages([example_message])
 
+
+def test_emails_without_recipients_are_not_sent(
+    example_message: EmailMessage,
+):
+    example_message.to = [] 
+    example_message.cc = [] 
+    example_message.bcc = [] 
+    mock_http_session = MockSession()
+    backend = GraphAPIMailBackend(
+        fail_silently=False,
+        client_id=mock_http_session.client_id,
+        client_secret=mock_http_session.client_secret,
+        tenant_id=mock_http_session.tenant_id,
+        create_session=lambda: mock_http_session,
+    )
+    sent_emails_count = backend.send_messages([example_message])
+    assert sent_emails_count == 0
