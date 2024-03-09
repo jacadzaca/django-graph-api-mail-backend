@@ -1,24 +1,10 @@
 from datetime import datetime, timedelta
 
 import pytest
-from django.conf import settings
-from requests import RequestException
 from django.core.mail.message import EmailMessage
 
-from tests.conftest import MockResponse
+from tests.conftest import MockResponse, MockSession
 from django_graph_api_mail_backend.graph_api_mail_backend import GraphAPIMailBackend
-import django_graph_api_mail_backend.graph_api_mail_backend as graph_api_mail_backend
-
-# needed in order to insttiate EmailMessage objects
-settings.configure(DEFAULT_CHARSET='utf-8')
-
-
-class SessionFailingOnAccessingToken:
-    def post(self, *_, **__) -> MockResponse:
-        return MockResponse(
-            response={},
-            is_ok=False,
-        )
 
 
 @pytest.mark.parametrize('missing_field', [
@@ -38,227 +24,125 @@ def test_graph_api_backend_must_be_constructed_with_client_id_client_secret_and_
 
 
 def test_open_raises_value_error_when_retriving_token_fails_and_fails_silently_off():
+    mock_http_session = MockSession(
+        fail_token_access=True,
+    )
     backend = GraphAPIMailBackend(
         fail_silently=False,
-        client_id='123-456-789',
-        client_secret='asdf123',
-        tenant_id='abcd-efgh-hijk',
-        create_session=SessionFailingOnAccessingToken,
+        client_id=mock_http_session.client_id,
+        client_secret=mock_http_session.client_secret,
+        tenant_id=mock_http_session.tenant_id,
+        create_session=lambda: mock_http_session,
     )
     with pytest.raises(ValueError):
         backend.open()
 
 
 def test_open_returns_false_when_retriving_token_fails_and_fail_silently_on():
+    mock_http_session = MockSession(
+        fail_token_access=True,
+    )
     backend = GraphAPIMailBackend(
         fail_silently=True,
-        client_id='123-456-789',
-        client_secret='asdf123',
-        tenant_id='abcd-efgh-hijk',
-        create_session=SessionFailingOnAccessingToken,
+        client_id=mock_http_session.client_id,
+        client_secret=mock_http_session.client_secret,
+        tenant_id=mock_http_session.tenant_id,
+        create_session=lambda: mock_http_session,
     )
     assert not backend.open()
 
 
-def test_send_messages_returns_0_when_cannot_open_connection_and_fail_silently_on():
-    tenant_id = 'abcd-efgh-hijk',
+def test_send_messages_returns_0_when_cannot_open_connection_and_fail_silently_on(
+    example_message: EmailMessage,
+):
+    mock_http_session = MockSession(
+        fail_token_access=True,
+    )
     backend = GraphAPIMailBackend(
         fail_silently=True,
-        client_id='123-456-789',
-        client_secret='asdf123',
-        tenant_id=tenant_id,
-        create_session=SessionFailingOnAccessingToken,
+        client_id=mock_http_session.client_id,
+        client_secret=mock_http_session.client_secret,
+        tenant_id=mock_http_session.tenant_id,
+        create_session=lambda: mock_http_session,
     )
-    sent_emails_count = backend.send_messages([
-        EmailMessage(
-            subject='Some email subject',
-            body="Some email body",
-            from_email='from_me@example.com',
-            to=['recipient1@example.com', 'recipient2@example.com'],
-            bcc=['bcc-recipient1@example.com', 'bcc-recipient2@example.com'],
-            cc=['cc-recipient1@example.com', 'cc-recipient2@example.com'],
-            reply_to=['replayto1@example.com', 'replayto2@example.com'],
-        ),
-    ])
+    sent_emails_count = backend.send_messages([example_message])
     assert sent_emails_count == 0
 
 
-def test_send_messages_refreshes_token_if_it_has_expired():
-    tenant_id = 'abcd-efgh-hijk',
-    expires_in_seconds = 3736
-    access_token = 'abcd123'
-    refresh_token = 'refresh-abcd123'
-    from_email = 'from_me@example.com'
-
-    times_token_refreshed = 0
-    class SessionReturningToken:
-        def post(self, url, data, *_, **__) -> MockResponse:
-            if url == graph_api_mail_backend.construct_token_endpoint(tenant_id):
-                if data['grant_type'] == 'client_credentials':
-                    return MockResponse(
-                        response={
-                            'expires_in': expires_in_seconds,
-                            'access_token': access_token,
-                            'refresh_token': refresh_token,
-                        }
-                    )
-                elif data['grant_type'] == 'refresh_token':
-                    nonlocal times_token_refreshed
-                    times_token_refreshed += 1
-                    return MockResponse(
-                        response={
-                            'expires_in': expires_in_seconds,
-                            'access_token': access_token,
-                            'refresh_token': refresh_token,
-                        }
-                    )
-                else:
-                    raise ValueError(f'improper grant_type in request to {url} with payload {data}')
-            elif graph_api_mail_backend.construct_send_email_endpoint(from_email):
-                return MockResponse(
-                    is_ok=True,
-                    status_code=200,
-                )
-            else:
-                raise ValueError('not get/refresh token endpoint')
-    
+def test_send_messages_refreshes_token_if_it_has_expired(
+    example_message: EmailMessage,
+):
+    mock_http_session = MockSession()
     start = datetime(year=2002, month=7, day=22, hour=12, minute=00, second=00)
     time_moments = iter([
         start,
-        start + timedelta(seconds=expires_in_seconds // 3),
-        start + timedelta(seconds=expires_in_seconds // 2),
-        start + timedelta(seconds=expires_in_seconds),
+        start + timedelta(seconds=mock_http_session.expires_in_seconds // 3),
+        start + timedelta(seconds=mock_http_session.expires_in_seconds // 2),
+        # token should be considered expired here
+        start + timedelta(seconds=mock_http_session.expires_in_seconds),
         # the last one's for _refresh_token to get it's timestmap
-        start + timedelta(seconds=expires_in_seconds),
+        start + timedelta(seconds=mock_http_session.expires_in_seconds),
     ])
     def get_now():
         return next(time_moments)
 
     backend = GraphAPIMailBackend(
         fail_silently=False,
-        client_id='123-456-789',
-        client_secret='asdf123',
-        tenant_id=tenant_id,
+        client_id=mock_http_session.client_id,
+        client_secret=mock_http_session.client_secret,
+        tenant_id=mock_http_session.tenant_id,
         get_now=get_now,
-        create_session=SessionReturningToken,
+        create_session=lambda: mock_http_session,
     )
-    backend.send_messages([
-        EmailMessage(
-            subject='Some email subject',
-            body="Some email body",
-            from_email=from_email,
-            to=['recipient1@example.com', 'recipient2@example.com'],
-            bcc=['bcc-recipient1@example.com', 'bcc-recipient2@example.com'],
-            cc=['cc-recipient1@example.com', 'cc-recipient2@example.com'],
-            reply_to=['replayto1@example.com', 'replayto2@example.com'],
-        ),
-    ] * 3)
-
-    assert times_token_refreshed == 1
+    backend.send_messages([example_message] * 3)
+    assert mock_http_session.times_token_refreshed == 1
 
 
-def test_send_messages_returns_count_of_succesfuly_sent_emails():
-    tenant_id = 'tenatn-id-abcd'
-    from_email = 'from@example.com'
-    class SessionFailingOneEmailSent:
-        def __init__(self):
-            self.post_count = 0
-
-        def post(self, url, data, *_, **__):
-            if url == graph_api_mail_backend.construct_send_email_endpoint(from_email):
-                self.post_count += 1
-                if self.post_count == 1:
-                    return MockResponse(
-                        is_ok=False,
-                        status_code=500,
-                    )
-                else:
-                    return MockResponse(
-                        is_ok=True,
-                        status_code=200,
-                    )
-            elif url == graph_api_mail_backend.construct_token_endpoint(tenant_id):
-                return MockResponse(
-                    response={
-                        'expires_in': 3675,
-                        'access_token': 'access_token',
-                        'refresh_token': 'refrest-token',
-                    }
-                )
-            else:
-                raise ValueError(f'Not send email endpoint nor acces token endpoint: {url}')
-
+def test_send_messages_returns_count_of_succesfuly_sent_emails(
+    example_message: EmailMessage,
+):
+    mock_http_session = MockSession(
+        max_email_sents=2,
+    )
     backend = GraphAPIMailBackend(
-        client_id='123-456-789',
-        client_secret='asdf123',
-        tenant_id=tenant_id,
-        create_session=SessionFailingOneEmailSent,
+        client_id=mock_http_session.client_id,
+        client_secret=mock_http_session.client_secret,
+        tenant_id=mock_http_session.tenant_id,
+        create_session=lambda: mock_http_session,
     )
-    to_send = [
-        EmailMessage(
-            subject='Some email subject',
-            body="Some email body",
-            from_email=from_email,
-            to=['recipient1@example.com', 'recipient2@example.com'],
-            bcc=['bcc-recipient1@example.com', 'bcc-recipient2@example.com'],
-            cc=['cc-recipient1@example.com', 'cc-recipient2@example.com'],
-            reply_to=['replayto1@example.com', 'replayto2@example.com'],
-        ),
-    ] * 3
+    to_send = [example_message] * 3
     successfully_sent_count = backend.send_messages(to_send)
     assert successfully_sent_count == len(to_send) - 1
 
 
-def test_send_messages_raises_value_error_when_refresh_token_fails_and_fails_silently_off():
-    class SessionFailingOnRefreshingToken:
-        def __init__(self):
-            self.post_count = 0
-
-        def post(self, *_, **__):
-            if self.post_count > 0:
-                return MockResponse(is_ok=False)
-            else:
-                self.post_count += 1
-                return MockResponse(
-                    is_ok=True,
-                    response={
-                        'expires_in': 0,
-                        'access_token': 'access_token',
-                        'refresh_token': 'refrest-token',
-                    }
-                )
-
+def test_send_messages_raises_value_error_when_refresh_token_fails_and_fails_silently_off(
+    example_message: EmailMessage,
+):
+    mock_http_session = MockSession(
+        fail_token_refresh=True,
+        expires_in_seconds=0,
+    )
     backend = GraphAPIMailBackend(
         fail_silently=False,
-        client_id='123-456-789',
-        client_secret='asdf123',
-        tenant_id='tenant-asdf',
-        create_session=SessionFailingOnRefreshingToken,
+        client_id=mock_http_session.client_id,
+        client_secret=mock_http_session.client_secret,
+        tenant_id=mock_http_session.tenant_id,
+        create_session=lambda: mock_http_session,
     )
     with pytest.raises(ValueError):
-        backend.send_messages([
-            EmailMessage(
-                subject='Some email subject',
-                body="Some email body",
-                from_email='from@example.com',
-                to=['recipient1@example.com', 'recipient2@example.com'],
-                bcc=['bcc-recipient1@example.com', 'bcc-recipient2@example.com'],
-                cc=['cc-recipient1@example.com', 'cc-recipient2@example.com'],
-                reply_to=['replayto1@example.com', 'replayto2@example.com'],
-            )
-        ])
+        backend.send_messages([example_message])
 
 
 def test_open_swallows_requests_exceptions_when_fail_silently_on():
-    class SessionThrowingException:
-        def post(self, url, data, *_, **__):
-            raise RequestException('some problem occured')
+    mock_http_session = MockSession(
+        raise_request_exception_on_post=True,
+    )
     backend = GraphAPIMailBackend(
         fail_silently=True,
-        client_id='123-456-789',
-        client_secret='asdf123',
-        tenant_id='abcd-efgh-hijk',
-        create_session=SessionThrowingException,
+        client_id=mock_http_session.client_id,
+        client_secret=mock_http_session.client_secret,
+        tenant_id=mock_http_session.tenant_id,
+        create_session=lambda: mock_http_session,
     )
     assert not backend.open()
 
