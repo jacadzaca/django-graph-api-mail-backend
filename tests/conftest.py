@@ -44,6 +44,8 @@ class MockSession:
         client_id='123-456-789',
         client_secret='asdf123',
         raise_request_exception_on_post=False,
+        raise_request_exception_on_sent_mail=False,
+        raise_request_exception_on_refresh_token=False,
         allowed_from_mails=None
     ):
         self.tenant_id = tenant_id
@@ -56,13 +58,16 @@ class MockSession:
         self.fail_token_refresh = fail_token_refresh
         self.expires_in_seconds = expires_in_seconds
         self.raise_request_exception_on_post = raise_request_exception_on_post
+        self.raise_request_exception_on_sent_mail = raise_request_exception_on_sent_mail
         self.times_token_refreshed = 0
+        self.post_call_count = 0
         self.sent_emails = 0
         self.allowed_from_mails = allowed_from_mails or {
             graph_api_mail_backend.construct_send_email_endpoint('from_me@example.com'),
         }
 
     def post(self, url, data, *_, **__):
+        self.post_call_count += 1
         if self.raise_request_exception_on_post:
             raise RequestException('some error occurred')
         if url == graph_api_mail_backend.construct_token_endpoint(self.tenant_id):
@@ -99,6 +104,8 @@ class MockSession:
                 raise ValueError(f'improper grant_type in request to {url} with payload {data}')
         # https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0&tabs=http#response
         elif url in self.allowed_from_mails:
+            if self.raise_request_exception_on_sent_mail:
+                raise RequestException('some error occurred')
             if self.max_email_sents is not None and self.sent_emails >= self.max_email_sents:
                 return MockResponse(
                     is_ok=False,

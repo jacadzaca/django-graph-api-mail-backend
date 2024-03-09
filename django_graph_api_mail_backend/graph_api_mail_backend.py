@@ -123,15 +123,20 @@ class GraphAPIMailBackend(BaseEmailBackend):
             return 0 
         sent_count = 0
         for email_message in email_messages:
-            if self._access_token.access_timestamp + timedelta(seconds=self._access_token.expires_in) <= self._get_now():
-                self._access_token = self._refresh_access_token()
-            response = self._http_session.post(
-                url=construct_send_email_endpoint(email_message.from_email),
-                data=base64.b64encode(
-                    email_message.message().as_bytes(linesep='\r\n')
-                ),
-            )
-            if response.ok:
-                sent_count += 1
+            try:
+                if self._access_token.access_timestamp + timedelta(seconds=self._access_token.expires_in) <= self._get_now():
+                    self._access_token = self._refresh_access_token()
+                response = self._http_session.post(
+                    url=construct_send_email_endpoint(email_message.from_email),
+                    data=base64.b64encode(
+                        email_message.message().as_bytes(linesep='\r\n')
+                    ),
+                )
+                if response.ok:
+                    sent_count += 1
+            except (RequestException, ValueError):
+                if self.fail_silently:
+                    continue
+                raise
         return sent_count
 

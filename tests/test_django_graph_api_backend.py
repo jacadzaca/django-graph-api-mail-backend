@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 import pytest
+from requests import RequestException
 from django.core.mail.message import EmailMessage
 
 from tests.conftest import MockResponse, MockSession
@@ -145,4 +146,76 @@ def test_open_swallows_requests_exceptions_when_fail_silently_on():
         create_session=lambda: mock_http_session,
     )
     assert not backend.open()
+
+
+@pytest.mark.parametrize('fail_sent_mail, fail_token_refresh', [
+    (False, True),
+    (True, False),
+])
+def test_send_messages_swallows_requests_exceptions_when_fail_silently_on(
+    example_message: EmailMessage,
+    fail_sent_mail: bool,
+    fail_token_refresh: bool,
+):
+    mock_http_session = MockSession(
+        raise_request_exception_on_sent_mail=fail_sent_mail,
+        fail_token_refresh=fail_token_refresh,
+        # set so token is refreshed so to test case when refreshing token fails
+        expires_in_seconds=0,
+    )
+    backend = GraphAPIMailBackend(
+        fail_silently=True,
+        client_id=mock_http_session.client_id,
+        client_secret=mock_http_session.client_secret,
+        tenant_id=mock_http_session.tenant_id,
+        create_session=lambda: mock_http_session,
+    )
+    successfully_sent_count = backend.send_messages([example_message])
+    assert successfully_sent_count == 0
+
+
+def test_send_messages_tries_to_send_all_messages_when_fail_silently_on(
+    example_message: EmailMessage,
+):
+    mock_http_session = MockSession(
+        raise_request_exception_on_sent_mail=True,
+    )
+    backend = GraphAPIMailBackend(
+        fail_silently=True,
+        client_id=mock_http_session.client_id,
+        client_secret=mock_http_session.client_secret,
+        tenant_id=mock_http_session.tenant_id,
+        create_session=lambda: mock_http_session,
+    )
+    to_send = [example_message] * 3
+    backend.send_messages(to_send)
+    # the - 1 is there to account for token acqusition request
+    assert (mock_http_session.post_call_count - 1) == len(to_send)
+
+
+@pytest.mark.parametrize('expected_exception, fail_sent_mail, fail_token_refresh', [
+    (ValueError, False, True),
+    (RequestException, True, False),
+])
+def test_send_messages_raises_exception_on_error_when_fail_silently_off(
+    expected_exception: type[Exception],
+    fail_sent_mail: bool,
+    fail_token_refresh: bool,
+    example_message: EmailMessage,
+):
+    mock_http_session = MockSession(
+        raise_request_exception_on_sent_mail=fail_sent_mail,
+        fail_token_refresh=fail_token_refresh,
+        # set so token is refreshed so to test case when refreshing token fails
+        expires_in_seconds=0,
+    )
+    backend = GraphAPIMailBackend(
+        fail_silently=False,
+        client_id=mock_http_session.client_id,
+        client_secret=mock_http_session.client_secret,
+        tenant_id=mock_http_session.tenant_id,
+        create_session=lambda: mock_http_session,
+    )
+    with pytest.raises(expected_exception):
+        backend.send_messages([example_message])
 
