@@ -3,8 +3,8 @@ import collections
 from typing import Callable
 from datetime import datetime, timedelta
 
-from requests import Session
 from django.conf import settings
+from requests import Session, RequestException
 from django.core.mail.message import EmailMessage
 from django.core.mail.backends.base import BaseEmailBackend
 
@@ -48,7 +48,7 @@ class GraphAPIMailBackend(BaseEmailBackend):
         self._http_session = self._create_session() 
         try:
             self._access_token = self._retrive_access_token()
-        except ValueError:
+        except (ValueError, RequestException):
             if not self.fail_silently:
                 raise
             return False

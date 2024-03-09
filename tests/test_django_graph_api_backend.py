@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from django.conf import settings
+from requests import RequestException
 from django.core.mail.message import EmailMessage
 
 from tests.conftest import MockResponse
@@ -246,4 +247,18 @@ def test_send_messages_raises_value_error_when_refresh_token_fails_and_fails_sil
                 reply_to=['replayto1@example.com', 'replayto2@example.com'],
             )
         ])
+
+
+def test_open_swallows_requests_exceptions_when_fail_silently_on():
+    class SessionThrowingException:
+        def post(self, url, data, *_, **__):
+            raise RequestException('some problem occured')
+    backend = GraphAPIMailBackend(
+        fail_silently=True,
+        client_id='123-456-789',
+        client_secret='asdf123',
+        tenant_id='abcd-efgh-hijk',
+        create_session=SessionThrowingException,
+    )
+    assert not backend.open()
 
