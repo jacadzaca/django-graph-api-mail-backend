@@ -1,4 +1,5 @@
 import base64
+import logging
 import collections
 from typing import Callable
 from datetime import datetime, timedelta
@@ -7,6 +8,8 @@ from django.conf import settings
 from requests import Session, RequestException
 from django.core.mail.message import EmailMessage
 from django.core.mail.backends.base import BaseEmailBackend
+
+LOGGER = logging.getLogger('django_graph_api_mail')
 
 # https://learn.microsoft.com/en-us/graph/auth-v2-user?tabs=http#token-response
 GraphAPIAccessToken = collections.namedtuple('GraphAPIAccessToken', ['value', 'expires_in_seconds', 'refresh_token', 'access_timestamp'])
@@ -47,7 +50,11 @@ class GraphAPIMailBackend(BaseEmailBackend):
         self._http_session = self._create_session() 
         try:
             self._access_token = self._retrive_access_token()
-        except (ValueError, RequestException):
+        except (ValueError, RequestException) as e:
+            LOGGER.error(
+                'Cannot acquire ADFS access token',
+                exc_info=e,
+            )
             if not self.fail_silently:
                 raise
             return False
@@ -123,6 +130,10 @@ class GraphAPIMailBackend(BaseEmailBackend):
         sent_count = 0
         for email_message in email_messages:
             if not email_message.recipients():
+                LOGGER.warning(
+                    'Email titled [%s] was without any recipients',
+                    email_message.subject,
+                )
                 continue
             email_message.from_email = email_message.from_email.split('<')[-1].split('>')[0]
             try:
@@ -136,9 +147,19 @@ class GraphAPIMailBackend(BaseEmailBackend):
                 )
                 if response.ok:
                     sent_count += 1
-            except (RequestException, ValueError):
+            except (RequestException, ValueError) as e:
+                LOGGER.error(
+                    'Failed to send email with subject: [%s]',
+                    email_message.subject,
+                    exc_info=e,
+                )
                 if self.fail_silently:
                     continue
                 raise
+        LOGGER.info(
+            '%s/%s emails were succesfully sent',
+            sent_count,
+            len(email_messages),
+        )
         return sent_count
 
