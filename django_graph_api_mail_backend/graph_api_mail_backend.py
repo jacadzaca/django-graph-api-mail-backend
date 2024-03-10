@@ -32,6 +32,7 @@ class GraphAPIMailBackend(BaseEmailBackend):
         tenant_id: str | None = None,
         fail_silently: bool = False,
         authority: str = None,
+        timeout: float = 5,
         get_now: Callable[[], datetime] = datetime.now,
         create_session: Callable[[], Session] = Session,
     ) -> None:
@@ -43,6 +44,10 @@ class GraphAPIMailBackend(BaseEmailBackend):
         self._http_session: Session | None = None
         self._create_session = create_session
         self._get_now = get_now
+        try:
+            self._timeout = settings.GRAPH_MAIL_BACKEND_TIMEOUT
+        except AttributeError:
+            self._timeout = timeout
 
     def open(self) -> bool:
         if self._http_session is not None:
@@ -85,6 +90,7 @@ class GraphAPIMailBackend(BaseEmailBackend):
                 'grant_type': 'client_credentials',
                 'scope': 'https://graph.microsoft.com/.default',
             },
+            timeout=self._timeout,
         )
         response.raise_for_status()
         response = response.json()
@@ -107,6 +113,7 @@ class GraphAPIMailBackend(BaseEmailBackend):
                 'client_secret': self._client_secret,
                 'refresh_token': self._access_token.refresh_token ,
             },
+            timeout=self._timeout,
         )
         response.raise_for_status()
         response = response.json()
@@ -146,6 +153,7 @@ class GraphAPIMailBackend(BaseEmailBackend):
                     data=base64.b64encode(
                         email_message.message().as_bytes(linesep='\r\n')
                     ),
+                    timeout=self._timeout,
                 )
                 if response.ok:
                     sent_count += 1
