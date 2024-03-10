@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
 import pytest
-from requests import RequestException
+from requests import RequestException, HTTPError
 from django.core.mail.message import EmailMessage
 
 from tests.conftest import MockResponse, MockSession
@@ -24,7 +24,7 @@ def test_graph_api_backend_must_be_constructed_with_client_id_client_secret_and_
         GraphAPIMailBackend(**active_driectory_secrets)
 
 
-def test_open_raises_value_error_when_retriving_token_fails_and_fails_silently_off():
+def test_open_raises_http_error_when_retriving_token_fails_and_fails_silently_off():
     mock_http_session = MockSession(
         fail_token_access=True,
     )
@@ -35,7 +35,7 @@ def test_open_raises_value_error_when_retriving_token_fails_and_fails_silently_o
         tenant_id=mock_http_session.tenant_id,
         create_session=lambda: mock_http_session,
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(HTTPError):
         backend.open()
 
 
@@ -116,7 +116,7 @@ def test_send_messages_returns_count_of_succesfuly_sent_emails(
     assert successfully_sent_count == len(to_send) - 1
 
 
-def test_send_messages_raises_value_error_when_refresh_token_fails_and_fails_silently_off(
+def test_send_messages_raises_http_error_when_refresh_token_fails_and_fails_silently_off(
     example_message: EmailMessage,
 ):
     mock_http_session = MockSession(
@@ -130,7 +130,7 @@ def test_send_messages_raises_value_error_when_refresh_token_fails_and_fails_sil
         tenant_id=mock_http_session.tenant_id,
         create_session=lambda: mock_http_session,
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(HTTPError):
         backend.send_messages([example_message])
 
 
@@ -194,7 +194,7 @@ def test_send_messages_tries_to_send_all_messages_when_fail_silently_on(
 
 
 @pytest.mark.parametrize('expected_exception, fail_sent_mail, fail_token_refresh', [
-    (ValueError, False, True),
+    (HTTPError, False, True),
     (RequestException, True, False),
 ])
 def test_send_messages_raises_exception_on_error_when_fail_silently_off(

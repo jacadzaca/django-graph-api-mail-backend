@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from django.conf import settings
-from requests import RequestException
+from requests import RequestException, HTTPError
 from django.core.mail.message import EmailMessage
 
 import django_graph_api_mail_backend.graph_api_mail_backend as graph_api_mail_backend
@@ -26,6 +26,10 @@ class MockResponse:
         self.content = content
         self.reason = reason
         self.status_code = status_code
+
+    def raise_for_status(self):
+        if not self.ok:
+            raise HTTPError('some error occurred')
 
     def json(self):
         return self.response

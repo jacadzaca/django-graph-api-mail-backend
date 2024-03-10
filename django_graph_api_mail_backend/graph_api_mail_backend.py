@@ -50,11 +50,22 @@ class GraphAPIMailBackend(BaseEmailBackend):
         self._http_session = self._create_session() 
         try:
             self._access_token = self._retrive_access_token()
-        except (ValueError, RequestException) as e:
-            LOGGER.error(
-                'Cannot acquire ADFS access token',
-                exc_info=e,
-            )
+        except RequestException as e:
+            try:
+                LOGGER.error(
+                    'Cannot acquire ADFS access token. Authority saying: %s (%s)'
+                    'Response body: %s',
+                    e.response.reason,
+                    e.response.status_code,
+                    e.response.text,
+                    exc_info=e,
+                )
+            except AttributeError:
+                LOGGER.error(
+                    'Cannot acquire ADFS access token',
+                    exc_info=e,
+                )
+
             if not self.fail_silently:
                 raise
             return False
@@ -75,13 +86,8 @@ class GraphAPIMailBackend(BaseEmailBackend):
                 'scope': 'https://graph.microsoft.com/.default',
             },
         )
-        if response.ok:
-            response = response.json()
-        else:
-            raise ValueError(
-                f'Cannot generate ADFS access token. Authority saying: {response.reason} ({response.status_code}) '
-                f'Response body: {response.content}'
-            )
+        response.raise_for_status()
+        response = response.json()
 
         # https://learn.microsoft.com/en-us/graph/auth-v2-user?tabs=http#token-response
         return GraphAPIAccessToken(
@@ -102,13 +108,9 @@ class GraphAPIMailBackend(BaseEmailBackend):
                 'refresh_token': self._access_token.refresh_token ,
             },
         )
-        if response.ok:
-            response = response.json()
-        else:
-            raise ValueError(
-                f'Cannot refresh ADFS access token. Authority saying: {response.reason} ({response.status_code}) '
-                f'Response body: {response.content}'
-            )
+        response.raise_for_status()
+        response = response.json()
+
         # https://learn.microsoft.com/en-us/graph/auth-v2-user?tabs=http#response-1
         return GraphAPIAccessToken(
             value=response['access_token'],
@@ -147,12 +149,24 @@ class GraphAPIMailBackend(BaseEmailBackend):
                 )
                 if response.ok:
                     sent_count += 1
-            except (RequestException, ValueError) as e:
-                LOGGER.error(
-                    'Failed to send email with subject: [%s]',
-                    email_message.subject,
-                    exc_info=e,
-                )
+            except RequestException as e:
+                try:
+                    LOGGER.error(
+                        'Failed to send email with subject: [%s]. Authority saying: %s (%s)'
+                        'Response body: %s',
+                        email_message.subject,
+                        e.response.reason,
+                        e.response.status_code,
+                        e.response.text,
+                        exc_info=e,
+                    )
+                except AttributeError:
+                    LOGGER.error(
+                        'Failed to send email with subject: [%s]',
+                        email_message.subject,
+                        exc_info=e,
+                    )
+
                 if self.fail_silently:
                     continue
                 raise
